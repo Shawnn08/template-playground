@@ -645,6 +645,8 @@ export const IMPORT = {
     placeholder: "https://example.org/archives/my-template@1.0.0.cta",
     submit: "Import",
     cancel: "Cancel",
+    invalidUrl: "Please enter a valid URL.",
+    invalidProtocol: "Only http and https URLs can be imported.",
   },
   imported: (name: string) => `Imported ${name}`,
   failed: (reason: string) => `Import failed: ${reason}`,

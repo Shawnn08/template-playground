@@ -84,6 +84,53 @@ describe('ImportTemplates', () => {
     expect(fetchMock).toHaveBeenCalledWith('https://example.org/a/nda@1.0.0.cta');
   }, 30_000);
 
+  it('validates URL format and shows an inline error without fetching', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ImportTemplates />);
+    fireEvent.click(screen.getByRole('button', { name: IMPORT.url.button }));
+    const input = await screen.findByLabelText(IMPORT.url.label, undefined, SLOW);
+
+    // Invalid URL string
+    fireEvent.change(input, { target: { value: 'not-a-valid-url' } });
+    fireEvent.click(screen.getByRole('button', { name: IMPORT.url.submit }));
+
+    expect(await screen.findByRole('alert', undefined, SLOW)).toHaveTextContent(IMPORT.url.invalidUrl);
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(loadImportedTemplate).not.toHaveBeenCalled();
+
+    // Editing clears the inline error
+    fireEvent.change(input, { target: { value: 'https://' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+
+    // Unsupported protocol (non-http/https)
+    fireEvent.change(input, { target: { value: 'ftp://example.com/template.cta' } });
+    fireEvent.click(screen.getByRole('button', { name: IMPORT.url.submit }));
+
+    expect(await screen.findByRole('alert', undefined, SLOW)).toHaveTextContent(IMPORT.url.invalidProtocol);
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(loadImportedTemplate).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it('displays inline error when archive download fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
+    render(<ImportTemplates />);
+    fireEvent.click(screen.getByRole('button', { name: IMPORT.url.button }));
+    const input = await screen.findByLabelText(IMPORT.url.label, undefined, SLOW);
+
+    fireEvent.change(input, { target: { value: 'https://example.org/missing.cta' } });
+    fireEvent.click(screen.getByRole('button', { name: IMPORT.url.submit }));
+
+    expect(await screen.findByRole('alert', undefined, SLOW)).toHaveTextContent(
+      /The archive could not be downloaded/
+    );
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(loadImportedTemplate).not.toHaveBeenCalled();
+  }, 30_000);
+
   it('keeps the selection with the imported template when the dialog is closed while it loads', async () => {
     const bytes = await makeArchive();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, arrayBuffer: () => Promise.resolve(bytes.buffer) }));

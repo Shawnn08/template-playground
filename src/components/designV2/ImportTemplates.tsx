@@ -30,11 +30,13 @@ const useImportTemplate = () => {
   const selectTemplate = useDesignV2Store((s) => s.selectTemplate);
   const goNext = useDesignV2Store((s) => s.goNext);
   const [busy, setBusy] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
   // Bumped by cancel(): an import that finishes after that must not touch the store or navigate.
   const generation = useRef(0);
   const cancel = useCallback(() => {
     generation.current += 1;
     setBusy(false);
+    setLastError(null);
   }, []);
   useEffect(() => cancel, [cancel]);
 
@@ -42,6 +44,7 @@ const useImportTemplate = () => {
     async (load: () => Promise<ImportedTemplate>): Promise<boolean> => {
       const mine = ++generation.current;
       setBusy(true);
+      setLastError(null);
       try {
         const imported = await load();
         if (mine !== generation.current) return false;
@@ -63,7 +66,11 @@ const useImportTemplate = () => {
         goNext();
         return true;
       } catch (error) {
-        if (mine === generation.current) void message.error(IMPORT.failed(errorText(error)));
+        const errMessage = errorText(error);
+        if (mine === generation.current) {
+          setLastError(errMessage);
+          void message.error(IMPORT.failed(errMessage));
+        }
         return false;
       } finally {
         if (mine === generation.current) setBusy(false);
@@ -71,7 +78,7 @@ const useImportTemplate = () => {
     },
     [loadImportedTemplate, selectTemplate, goNext]
   );
-  return { run, busy, cancel };
+  return { run, busy, cancel, lastError };
 };
 
 interface LibraryModalProps {
@@ -233,18 +240,44 @@ interface UrlModalProps {
   onClose: () => void;
 }
 
+const validateUrl = (value: string): string | null => {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return IMPORT.url.invalidUrl;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return IMPORT.url.invalidProtocol;
+  }
+  return null;
+};
+
 /** Import a `.cta` from any URL — the entry point for third-party libraries. */
 const UrlModal = ({ open, onClose }: UrlModalProps) => {
-  const { run, busy, cancel } = useImportTemplate();
+  const { run, busy, cancel, lastError } = useImportTemplate();
   const [url, setUrl] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const displayError = localError ?? lastError;
+
   const close = () => {
     cancel();
+    setLocalError(null);
+    setUrl("");
     onClose();
   };
 
   const submit = async () => {
     const target = url.trim();
     if (!target) return;
+
+    const validationError = validateUrl(target);
+    if (validationError) {
+      setLocalError(validationError);
+      return;
+    }
+
+    setLocalError(null);
     const rawName = target.split(/[?#]/)[0].split("/").pop() ?? "";
     let decoded = rawName;
     try {
@@ -254,7 +287,7 @@ const UrlModal = ({ open, onClose }: UrlModalProps) => {
     }
     const fileName = decoded.replace(/\.(cta|zip)$/i, "");
     const ok = await run(async () => readTemplateArchive(await fetchArchive(target), fileName || "template"));
-    if (ok) onClose();
+    if (ok) close();
   };
 
   return (
@@ -268,14 +301,27 @@ const UrlModal = ({ open, onClose }: UrlModalProps) => {
       onOk={() => void submit()}
       destroyOnClose
     >
-      <Input
-        type="url"
-        value={url}
-        placeholder={IMPORT.url.placeholder}
-        aria-label={IMPORT.url.label}
-        onChange={(e) => setUrl(e.target.value)}
-        onPressEnter={() => void submit()}
-      />
+      <Space direction="vertical" size={6} style={{ width: "100%" }}>
+        <Input
+          type="url"
+          value={url}
+          status={displayError ? "error" : undefined}
+          placeholder={IMPORT.url.placeholder}
+          aria-label={IMPORT.url.label}
+          aria-invalid={Boolean(displayError)}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            if (localError) setLocalError(null);
+            if (lastError) cancel();
+          }}
+          onPressEnter={() => void submit()}
+        />
+        {displayError && (
+          <Typography.Text type="danger" role="alert" style={{ fontSize: 12 }}>
+            {displayError}
+          </Typography.Text>
+        )}
+      </Space>
     </Modal>
   );
 };
