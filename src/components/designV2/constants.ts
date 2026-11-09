@@ -412,6 +412,7 @@ export const SIMULATE = {
   stats: (runs: number, ok: number, failed: number) =>
     `${runs} ${runs === 1 ? "run" : "runs"} · ${ok} ok · ${failed} failed`,
   noRuns: "Nothing has happened yet — start the contract to get its opening state.",
+  noRunsStateless: "Nothing has happened yet — send a message to run the contract.",
   init: "▶ Start the contract",
   newRequest: "Send a message to the contract",
   json: "json",
